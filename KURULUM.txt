@@ -1,16 +1,9 @@
-GitHub'a sadece bu dosyaları yükleyin:
-- index.html
-- server.js
-- package.json
-- db.json
+RENDER GELİŞMİŞ SÜRÜM KURULUMU
 
-Render ayarları:
-Build Command: npm install
-Start Command: npm start
-
-Servis tipi:
-Web Service
-
-Not:
-Bu paket sizin mevcut index dosyanızın sunucu entegrasyonlu halidir.
-Admin paneline 'Sınava Girenler' bölümü eklenmiştir.
+1) Bu zip içindeki dosyaları GitHub repodaki mevcut dosyaların yerine yükleyin.
+2) Render panelinde Manual Deploy > Deploy latest commit yapın.
+3) Site açılınca admin panelinde:
+   - Sınava Girenler canlı yenilenir
+   - Toplam / Aktif / Biten / Ortalama puan görünür
+   - CSV indir butonu ile liste dışa aktarılır
+4) Bu sürüm mevcut indexiniz üzerine kurulmuştur.

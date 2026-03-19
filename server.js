@@ -10,30 +10,58 @@ app.use(express.json({ limit: "1mb" }));
 const ROOT = __dirname;
 const DB_FILE = path.join(ROOT, "db.json");
 
+function normalizeDB(raw) {
+  const db = raw && typeof raw === "object" ? raw : {};
+  if (!Array.isArray(db.participants)) db.participants = [];
+  if (!Array.isArray(db.archivedParticipants)) db.archivedParticipants = [];
+  if (!db.meta || typeof db.meta !== "object") db.meta = {};
+  return db;
+}
 function ensureDB() {
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ participants: [] }, null, 2), "utf8");
+    fs.writeFileSync(DB_FILE, JSON.stringify(normalizeDB({ participants: [] }), null, 2), "utf8");
   }
 }
 function readDB() {
   ensureDB();
   try {
-    return JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
+    return normalizeDB(JSON.parse(fs.readFileSync(DB_FILE, "utf8")));
   } catch (e) {
-    return { participants: [] };
+    return normalizeDB({ participants: [] });
   }
 }
 function writeDB(data) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf8");
+  fs.writeFileSync(DB_FILE, JSON.stringify(normalizeDB(data), null, 2), "utf8");
 }
 function nowIso() {
   return new Date().toLocaleString("tr-TR");
+}
+function computeStats(rows) {
+  const all = Array.isArray(rows) ? rows : [];
+  const finished = all.filter((x) => !!x.finishedAt);
+  const active = all.filter((x) => !x.finishedAt);
+  const scores = finished.map((x) => Number(x.score || 0)).filter((n) => Number.isFinite(n));
+  const averageScore = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+  return {
+    total: all.length,
+    active: active.length,
+    finished: finished.length,
+    sef: all.filter((x) => x.variant === "sef").length,
+    memur: all.filter((x) => x.variant === "memur").length,
+    averageScore: Number(averageScore.toFixed(2)),
+    lastEntryAt: all.length ? all[0].startedAt || null : null
+  };
+}
+function escapeCsv(value) {
+  const str = String(value ?? "");
+  return `"${str.replace(/"/g, '""')}"`;
 }
 
 ensureDB();
 
 app.get("/api/health", (req, res) => {
-  res.json({ ok: true });
+  const db = readDB();
+  res.json({ ok: true, stats: computeStats(db.participants) });
 });
 
 app.get("/api/participants", (req, res) => {
@@ -44,6 +72,47 @@ app.get("/api/participants", (req, res) => {
     return String(b.startedAt || "").localeCompare(String(a.startedAt || ""));
   });
   res.json(rows);
+});
+
+app.get("/api/admin/stats", (req, res) => {
+  const db = readDB();
+  res.json(computeStats(db.participants));
+});
+
+app.get("/api/participants/export.csv", (req, res) => {
+  const db = readDB();
+  const rows = Array.isArray(db.participants) ? db.participants.slice() : [];
+  rows.sort((a, b) => String(b.startedAt || "").localeCompare(String(a.startedAt || "")));
+  const header = [
+    "Ad Soyad",
+    "Varyant",
+    "Başlangıç",
+    "Bitiş",
+    "Doğru",
+    "Yanlış",
+    "Boş",
+    "Puan",
+    "Başarı Yüzdesi",
+    "Cihaz"
+  ];
+  const lines = [header.map(escapeCsv).join(",")];
+  for (const r of rows) {
+    lines.push([
+      r.name || "",
+      r.variant === "memur" ? "Memurluk" : "Şeflik",
+      r.startedAt || "",
+      r.finishedAt || "",
+      r.correct ?? "",
+      r.wrong ?? "",
+      r.blank ?? "",
+      r.score ?? "",
+      r.percent ?? "",
+      r.userAgent || ""
+    ].map(escapeCsv).join(","));
+  }
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="sinava-girenler.csv"');
+  res.send("\ufeff" + lines.join("\n"));
 });
 
 app.post("/api/exam-enter", (req, res) => {
@@ -71,6 +140,7 @@ app.post("/api/exam-enter", (req, res) => {
   };
 
   db.participants.push(row);
+  db.meta.lastEntryAt = row.startedAt;
   writeDB(db);
   res.json(row);
 });
@@ -97,7 +167,17 @@ app.post("/api/exam-finish", (req, res) => {
 });
 
 app.post("/api/admin/participants/clear", (req, res) => {
-  writeDB({ participants: [] });
+  const db = readDB();
+  if (db.participants.length) {
+    db.archivedParticipants.push({
+      clearedAt: nowIso(),
+      count: db.participants.length,
+      rows: db.participants
+    });
+  }
+  db.participants = [];
+  db.meta.lastClearedAt = nowIso();
+  writeDB(db);
   res.json({ ok: true });
 });
 

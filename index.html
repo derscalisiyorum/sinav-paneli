@@ -4186,6 +4186,21 @@ const SON_SINAV_PUBLISHED_KEY = "tbmm_son_sinav_published_v1";
 const SON_SINAV_DURATION_KEY = "tbmm_son_sinav_duration_v1";
 const SON_SINAV_TAKEN_KEY = "tbmm_son_sinav_taken_v1";
 
+const ADMIN_PARTICIPANT_REFRESH_MS = 10000;
+let adminParticipantRefreshTimer = null;
+function setAdminLiveInfo(text){
+  const el = document.getElementById("adminParticipantLiveInfo");
+  if(el) el.textContent = text || "";
+}
+function updateAdminParticipantStatsUI(stats){
+  const safe = stats || {};
+  const set = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = String(val ?? 0); };
+  set("adminStatTotal", safe.total || 0);
+  set("adminStatActive", safe.active || 0);
+  set("adminStatFinished", safe.finished || 0);
+  set("adminStatAverage", Number(safe.averageScore || 0).toFixed(1));
+}
+
 const SERVER_API_BASE = "";
 function apiUrl(path){
   return `${SERVER_API_BASE}${path}`;
@@ -4228,6 +4243,7 @@ async function submitServerExamFinish(serverEntryId, payload){
     return false;
   }
 }
+
 async function fetchServerParticipants(){
   try{
     const rows = await apiGetJSON("/api/participants");
@@ -4235,6 +4251,14 @@ async function fetchServerParticipants(){
   }catch(e){
     console.warn("fetchServerParticipants failed", e);
     return [];
+  }
+}
+async function fetchServerParticipantStats(){
+  try{
+    return await apiGetJSON("/api/admin/stats");
+  }catch(e){
+    console.warn("fetchServerParticipantStats failed", e);
+    return {total:0, active:0, finished:0, averageScore:0};
   }
 }
 async function clearServerParticipants(){
@@ -4246,11 +4270,35 @@ async function clearServerParticipants(){
     return false;
   }
 }
+function exportServerParticipantsCSV(){
+  window.open(apiUrl("/api/participants/export.csv"), "_blank");
+}
+function stopAdminParticipantAutoRefresh(){
+  if(adminParticipantRefreshTimer){
+    clearInterval(adminParticipantRefreshTimer);
+    adminParticipantRefreshTimer = null;
+  }
+  setAdminLiveInfo("Canlı yenileme kapalı");
+}
+function startAdminParticipantAutoRefresh(){
+  stopAdminParticipantAutoRefresh();
+  if(!isSonSinavAdmin()) return;
+  setAdminLiveInfo("Canlı yenileme açık · her 10 sn");
+  adminParticipantRefreshTimer = setInterval(()=>{
+    if(!isSonSinavAdmin()) return;
+    if(!document.getElementById("adminPanelContent") || document.getElementById("adminPanelContent").style.display === "none") return;
+    renderAdminParticipants();
+  }, ADMIN_PARTICIPANT_REFRESH_MS);
+}
+
+
 async function renderAdminParticipants(){
   const wrap = document.getElementById("adminParticipantList");
   if(!wrap) return;
   wrap.innerHTML = '<div class="lb-empty">Yükleniyor...</div>';
-  const rows = await fetchServerParticipants();
+  const [rows, stats] = await Promise.all([fetchServerParticipants(), fetchServerParticipantStats()]);
+  updateAdminParticipantStatsUI(stats);
+  setAdminLiveInfo(`Son yenileme: ${new Date().toLocaleTimeString("tr-TR")}`);
   if(!rows.length){
     wrap.innerHTML = '<div class="lb-empty">Henüz sınava giren görünmüyor.</div>';
     return;
@@ -4263,11 +4311,13 @@ async function renderAdminParticipants(){
       : `<span class="admin-badge" style="background:#eff6ff;border-color:#93c5fd;color:#1d4ed8">Sınavda</span>`;
     const started = escapeHtml(r.startedAt || "");
     const finished = r.finishedAt ? `<div class="small">Bitiş: ${escapeHtml(r.finishedAt)}</div>` : '';
+    const agent = r.userAgent ? `<div class="small">Cihaz: ${escapeHtml(String(r.userAgent).slice(0,80))}</div>` : '';
     return `<div class="device-item">
       <div>
         <b>${i+1}. ${name}</b>
         <div class="small">${variant} · Başlangıç: ${started}</div>
         ${finished}
+        ${agent}
       </div>
       ${status}
       <div></div>
@@ -4575,11 +4625,17 @@ function openAdminPanel(){
     renderAdminDeviceList();
     renderPublishedQuestions();
     renderAdminParticipants();
-    if(document.getElementById("adminDurationInput")) document.getElementById("adminDurationInput").value = getSonSinavDurationMinutes();
+    startAdminParticipantAutoRefresh();
+    renderAdminParticipants();
+  startAdminParticipantAutoRefresh();
+  if(document.getElementById("adminDurationInput")) document.getElementById("adminDurationInput").value = getSonSinavDurationMinutes();
   }
   refreshAdminOnlineCount();
   refreshAdminOnlineCount();
-  if(dlg) dlg.showModal();
+  if(dlg) {
+    dlg.showModal();
+    dlg.addEventListener("close", stopAdminParticipantAutoRefresh, {once:true});
+  }
 }
 
 function loginAdminPanel(){
@@ -4611,6 +4667,7 @@ function logoutAdminPanel(){
   updateAdminChip(); renderAdminCardSettings();
   if(document.getElementById("adminPanelContent")) document.getElementById("adminPanelContent").style.display = "none";
   if(document.getElementById("adminLoginWrap")) document.getElementById("adminLoginWrap").style.display = "block";
+  stopAdminParticipantAutoRefresh();
 }
 
 
