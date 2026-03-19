@@ -1,0 +1,16 @@
+GitHub'a sadece bu dosyaları yükleyin:
+- index.html
+- server.js
+- package.json
+- db.json
+
+Render ayarları:
+Build Command: npm install
+Start Command: npm start
+
+Servis tipi:
+Web Service
+
+Not:
+Bu paket sizin mevcut index dosyanızın sunucu entegrasyonlu halidir.
+Admin paneline 'Sınava Girenler' bölümü eklenmiştir.
